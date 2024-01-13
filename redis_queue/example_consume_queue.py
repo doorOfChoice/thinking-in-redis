@@ -1,6 +1,6 @@
 from threading import Thread
 
-from example_redis_queue.r_queue import IRedisEventHandler, RedisEvent, RedisQueue
+from redis_queue.consume_queue import IRedisEventHandler, RedisEvent, RedisConsumeQueue
 
 
 class PrintTextHandler(IRedisEventHandler):
@@ -8,6 +8,8 @@ class PrintTextHandler(IRedisEventHandler):
     处理打印消息的Handler
     """
     def handle(self, event: RedisEvent):
+        if event.data == "ex":
+            raise Exception("ex")
         print(event)
 
     @classmethod
@@ -19,7 +21,7 @@ class UserInputThread(Thread):
     """
     用户录入消息的线程
     """
-    def __init__(self, queue: RedisQueue):
+    def __init__(self, queue: RedisConsumeQueue):
         super().__init__()
         self.queue = queue
 
@@ -31,7 +33,7 @@ class UserInputThread(Thread):
 
 
 if __name__ == "__main__":
-    queue = RedisQueue("queue")
+    queue = RedisConsumeQueue("queue", max_retry_interval_sec=5, max_abandon_sec=15)
 
     queue.register_event_handler(PrintTextHandler())
 

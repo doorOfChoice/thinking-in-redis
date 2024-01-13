@@ -46,7 +46,7 @@ class IRedisEventHandler(ABC):
         raise NotImplementedError()
 
 
-class RedisQueue:
+class RedisConsumeQueue:
     def __init__(
             self,
             queue_name: str,
@@ -84,7 +84,7 @@ class RedisQueue:
 
     def __run_failed_queue(self):
         while True:
-            time.sleep(self.__max_retry_interval_sec / 2)
+            time.sleep(self.__max_retry_interval_sec)
             now_timestamp = int(datetime.now().timestamp())
             start = 0
             limit = 1000
