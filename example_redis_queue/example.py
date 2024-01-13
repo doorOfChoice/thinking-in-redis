@@ -4,6 +4,9 @@ from example_redis_queue.r_queue import IRedisEventHandler, RedisEvent, RedisQue
 
 
 class PrintTextHandler(IRedisEventHandler):
+    """
+    处理打印消息的Handler
+    """
     def handle(self, event: RedisEvent):
         print(event)
 
@@ -13,6 +16,9 @@ class PrintTextHandler(IRedisEventHandler):
 
 
 class UserInputThread(Thread):
+    """
+    用户录入消息的线程
+    """
     def __init__(self, queue: RedisQueue):
         super().__init__()
         self.queue = queue

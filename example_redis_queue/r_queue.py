@@ -48,16 +48,16 @@ class IRedisEventHandler(ABC):
 
 class RedisQueue:
     def __init__(
-        self,
-        queue_name: str,
-        max_retry_interval_sec: int = 60 * 5,
-        max_abandon_sec: int = 60 * 20,
+            self,
+            queue_name: str,
+            max_retry_interval_sec: int = 60 * 5,
+            max_abandon_sec: int = 60 * 20,
     ):
         self.__redis_client = client_maker.get_redis_client()
-        # 待处理队列
-        self.__queue_name = queue_name
+        # 任务队列
+        self.__task_queue_name = queue_name
         # 处理队列
-        self.__process_queue_name = f"{queue_name}_backup"
+        self.__processing_queue_name = f"{queue_name}_backup"
         # 处理事件的handler
         self.__event_type_handler_map = {}
         # 消息超时时间，超过这个时间将会被重新放入待处理列表
@@ -67,8 +67,8 @@ class RedisQueue:
 
     def __run_normal_queue(self):
         while True:
-            element = self.__redis_client.brpoplpush(
-                self.__queue_name, self.__process_queue_name, timeout=0
+            element = self.get_redis_client().brpoplpush(
+                self.__task_queue_name, self.__processing_queue_name, timeout=0
             )
             event = RedisEvent.model_validate(json.loads(element))
             event_handler = self.get_event_handler(event.event_type)
@@ -80,7 +80,7 @@ class RedisQueue:
                     success_process = False
                     logging.exception(f"process element:{element} failed")
             if success_process:
-                self.__redis_client.lrem(self.__process_queue_name, 0, element)
+                self.get_redis_client().lrem(self.__processing_queue_name, 0, element)
 
     def __run_failed_queue(self):
         while True:
@@ -88,33 +88,34 @@ class RedisQueue:
             now_timestamp = int(datetime.now().timestamp())
             start = 0
             limit = 1000
-            processing_data_list = None
-            while processing_data_list is None or len(processing_data_list) > 0:
-                processing_data_list = self.__redis_client.lrange(
-                    self.__process_queue_name, start, start + limit
+            data_list = None
+            while data_list is None or len(data_list) > 0:
+                data_list = self.get_redis_client().lrange(
+                    self.__processing_queue_name, start, start + limit
                 )
                 start += limit
-                for processing_data in processing_data_list:
-                    event = RedisEvent.model_validate(json.loads(processing_data))
+                for data in data_list:
+                    event = RedisEvent.model_validate(json.loads(data))
                     diff_time = now_timestamp - event.created_time
                     if diff_time < self.__max_retry_interval_sec:
                         continue
                     elif (
-                        self.__max_retry_interval_sec
-                        <= diff_time
-                        < self.__max_abandon_sec
+                            self.__max_retry_interval_sec
+                            <= diff_time
+                            < self.__max_abandon_sec
                     ):
                         logging.info(
-                            f"start to retry, processing_data:{processing_data}"
+                            f"start to retry, data:{data}"
                         )
                         # TODO 这里需要改良, 优化成一个原子操作
-                        self.__rem_from_process_queue(processing_data)
-                        self.__push_to_queue(processing_data)
+                        self.__rem_from_process_queue(data)
+                        self.__push_to_queue(data)
                     else:
                         logging.warning(
-                            f"retry end, abandon data, processing_data:{processing_data}"
+                            f"retry end, abandon data, data:{data}"
                         )
-                        self.__rem_from_process_queue(processing_data)
+                        self.__rem_from_process_queue(data)
+
 
     def __rem_from_process_queue(self, data: str):
         """
@@ -122,7 +123,7 @@ class RedisQueue:
         :param data:
         :return:
         """
-        self.__redis_client.lrem(self.__process_queue_name, 0, data)
+        self.get_redis_client().lrem(self.__processing_queue_name, 0, data)
 
     def __push_to_queue(self, data: str):
         """
@@ -130,7 +131,7 @@ class RedisQueue:
         :param data:
         :return:
         """
-        self.__redis_client.lpush(self.__queue_name, data)
+        self.get_redis_client().lpush(self.__task_queue_name, data)
 
     def listen(self):
         """
@@ -163,3 +164,6 @@ class RedisQueue:
 
     def get_event_handler(self, event_type: str) -> IRedisEventHandler | None:
         return self.__event_type_handler_map.get(event_type)
+
+    def get_redis_client(self):
+        return self.__redis_client
