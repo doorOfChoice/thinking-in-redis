@@ -75,6 +75,7 @@ class RedisConsumeQueue:
             success_process = True
             if event_handler:
                 try:
+                    time.sleep(0.3)
                     event_handler.handle(event)
                 except Exception as e:
                     success_process = False
@@ -108,8 +109,7 @@ class RedisConsumeQueue:
                             f"start to retry, data:{data}"
                         )
                         # TODO 这里需要改良, 优化成一个原子操作
-                        self.__rem_from_process_queue(data)
-                        self.__push_to_queue(data)
+                        self.__rem_from_process_queue_to_task_queue(data)
                     else:
                         logging.warning(
                             f"retry end, abandon data, data:{data}"
@@ -125,13 +125,29 @@ class RedisConsumeQueue:
         """
         self.get_redis_client().lrem(self.__processing_queue_name, 0, data)
 
-    def __push_to_queue(self, data: str):
+    def __push_to_task_queue(self, data: str):
         """
         推送数据到待处理队列
         :param data:
         :return:
         """
         self.get_redis_client().lpush(self.__task_queue_name, data)
+
+    def __rem_from_process_queue_to_task_queue(self, data: str):
+        """
+        原子操作
+        1。 先把数据从执行队列push回任务队列
+        2。 再把数据从执行队列删除
+        :param data:
+        :return:
+        """
+        cmd = client_maker.get_redis_client().register_script(
+            """
+            redis.call("lpush", KEYS[1], ARGV[1])
+            redis.call("lrem", KEYS[2], 0, ARGV[1])
+            """
+        )
+        cmd(keys=[self.__task_queue_name, self.__processing_queue_name], args=[data])
 
     def listen(self):
         """
@@ -151,7 +167,7 @@ class RedisConsumeQueue:
         :return:
         """
         event = RedisEvent.build(event_type, content)
-        self.__push_to_queue(json.dumps(event.model_dump()))
+        self.__push_to_task_queue(json.dumps(event.model_dump()))
 
     def register_event_handler(self, handler: IRedisEventHandler):
         """

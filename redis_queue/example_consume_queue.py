@@ -1,5 +1,6 @@
 from threading import Thread
 
+import client_maker
 from redis_queue.consume_queue import IRedisEventHandler, RedisEvent, RedisConsumeQueue
 
 
@@ -29,7 +30,7 @@ class UserInputThread(Thread):
         while True:
             msg = input("input your msg:")
             for i in range(0, 10):
-                queue.push_event(PrintTextHandler.event_type(), msg)
+                self.queue.push_event(PrintTextHandler.event_type(), msg)
 
 
 if __name__ == "__main__":
