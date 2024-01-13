@@ -11,3 +11,6 @@ Now I'm starting to create some interesting demo...
 
 现在，我开始搞一些大事，从一些小的命令开始！
 
+## project list
+
+[Redis实现可靠的消息队列](example_redis_queue/readme.md)
