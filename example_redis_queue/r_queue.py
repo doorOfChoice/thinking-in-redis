@@ -15,6 +15,7 @@ class RedisEvent(BaseModel):
     """
     统一放置在redis队列中的元素
     """
+
     event_id: str
     event_type: str
     created_time: int
@@ -34,6 +35,7 @@ class IRedisEventHandler(ABC):
     """
     处理不同event_type的消息的handler
     """
+
     @abstractmethod
     def handle(self, event: RedisEvent):
         raise NotImplementedError()
