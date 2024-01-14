@@ -5,8 +5,10 @@ import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime
 from threading import Thread
+from typing import Any, Optional
 
 from pydantic import BaseModel
+from redis import Redis
 
 import client_maker
 
@@ -19,16 +21,51 @@ class RedisEvent(BaseModel):
     event_id: str
     event_type: str
     created_time: int
-    data: str
+    params: str
+    event_result_key_prefix: str
 
     @classmethod
-    def build(cls, event_type: str, data: str) -> "RedisEvent":
+    def build(
+        cls, event_type: str, params: str, event_result_key_prefix: str
+    ) -> "RedisEvent":
         return cls(
             event_id=str(uuid.uuid4()),
             event_type=event_type,
-            data=data,
+            params=params,
             created_time=int(datetime.now().timestamp()),
+            event_result_key_prefix=event_result_key_prefix,
         )
+
+    @property
+    def event_result_key_name(self):
+        return f"{self.event_result_key_prefix}:{self.event_id}"
+
+
+class RedisEventResult(BaseModel):
+    event_id: str
+    result: Optional[str] = None
+
+    @classmethod
+    def build(cls, event_id: str, result: Optional[str]) -> "RedisEventResult":
+        return cls(event_id=event_id, result=result)
+
+
+class RedisEventFeature:
+    def __init__(self, event_result_key_name: str, redis_client: Redis):
+        self.event_result_key_name = event_result_key_name
+        self.redis_client = redis_client
+
+    def get(self, timeout: int = 60) -> RedisEventResult:
+        now_timestamp = int(datetime.now().timestamp())
+        max_timestamp = now_timestamp + timeout
+        while now_timestamp < max_timestamp:
+            value = self.redis_client.get(self.event_result_key_name)
+            if not value:
+                time.sleep(0.1)
+                now_timestamp = int(datetime.now().timestamp())
+                continue
+            return RedisEventResult.model_validate(json.loads(value))
+        raise TimeoutError("获取数据超时")
 
 
 class IRedisEventHandler(ABC):
@@ -37,7 +74,7 @@ class IRedisEventHandler(ABC):
     """
 
     @abstractmethod
-    def handle(self, event: RedisEvent):
+    def handle(self, event: RedisEvent) -> Any:
         raise NotImplementedError()
 
     @classmethod
@@ -60,6 +97,8 @@ class RedisConsumeQueue:
         self.__task_queue_failed_lock_name = f"{queue_name}_lock"
         # 处理队列
         self.__processing_queue_name = f"{queue_name}_backup"
+        # 任务队列存储处理消息返回结果
+        self.__task_result_key_prefix = f"{queue_name}_task_result"
         # 处理事件的handler
         self.__event_type_handler_map = {}
         # 消息超时时间，超过这个时间将会被重新放入待处理列表
@@ -77,8 +116,23 @@ class RedisConsumeQueue:
             success_process = True
             if event_handler:
                 try:
-                    time.sleep(0.3)
-                    event_handler.handle(event)
+                    result = event_handler.handle(event)
+                    event_result = result
+                    if not event_result and not isinstance(event_result, str):
+                        if isinstance(event_result, BaseModel):
+                            event_result = json.dumps(event_result.model_dump())
+                        else:
+                            event_result = json.dumps(event_result)
+
+                    self.get_redis_client().set(
+                        event.event_result_key_name,
+                        json.dumps(
+                            RedisEventResult.build(
+                                event.event_id, event_result
+                            ).model_dump()
+                        ),
+                        ex=300,
+                    )
                 except Exception as e:
                     success_process = False
                     logging.exception(f"process element:{element} failed")
@@ -172,8 +226,9 @@ class RedisConsumeQueue:
         :param content:
         :return:
         """
-        event = RedisEvent.build(event_type, content)
+        event = RedisEvent.build(event_type, content, self.__task_result_key_prefix)
         self.__push_to_task_queue(json.dumps(event.model_dump()))
+        return RedisEventFeature(event.event_result_key_name, self.get_redis_client())
 
     def register_event_handler(self, handler: IRedisEventHandler):
         """
