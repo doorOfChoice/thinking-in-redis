@@ -41,7 +41,7 @@ class ConsumerThread(threading.Thread):
 ConsumerThread().start()
 ProducerThread().start()
 ```
-[see demo1](example_simple_demo.py)
+[查看demo](example_simple_demo.py)
 
 所以，一个简单的消息队列就这样被实现了。
 
@@ -88,4 +88,5 @@ ProducerThread().start()
 
 
 [点击这里看可靠消息队列的实现](consume_queue.py)
-[点击这里看如何使用](example_simple_demo.py)
+
+[点击这里看如何使用](example_consume_queue.py)
