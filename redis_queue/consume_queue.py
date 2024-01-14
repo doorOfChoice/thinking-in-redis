@@ -10,7 +10,7 @@ from typing import Any, Optional
 from pydantic import BaseModel
 from redis import Redis
 
-import client_maker
+import client_builder
 
 
 class RedisEvent(BaseModel):
@@ -90,7 +90,7 @@ class RedisConsumeQueue:
         max_retry_interval_sec: int = 60 * 5,
         max_abandon_sec: int = 60 * 20,
     ):
-        self.__redis_client = client_maker.get_redis_client()
+        self.__redis_client = client_builder.get_redis_client()
         # 任务队列
         self.__task_queue_name = queue_name
         # 任务队列失败任务扫描锁
