@@ -13,4 +13,4 @@ Now I'm starting to create some interesting demo...
 
 ## project list
 
-[Redis实现可靠的消息队列](example_redis_queue/readme.md)
+[Redis实现可靠的消息队列](redis_queue/readme.md)

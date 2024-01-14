@@ -48,14 +48,16 @@ class IRedisEventHandler(ABC):
 
 class RedisConsumeQueue:
     def __init__(
-            self,
-            queue_name: str,
-            max_retry_interval_sec: int = 60 * 5,
-            max_abandon_sec: int = 60 * 20,
+        self,
+        queue_name: str,
+        max_retry_interval_sec: int = 60 * 5,
+        max_abandon_sec: int = 60 * 20,
     ):
         self.__redis_client = client_maker.get_redis_client()
         # 任务队列
         self.__task_queue_name = queue_name
+        # 任务队列失败任务扫描锁
+        self.__task_queue_failed_lock_name = f"{queue_name}_lock"
         # 处理队列
         self.__processing_queue_name = f"{queue_name}_backup"
         # 处理事件的handler
@@ -86,6 +88,15 @@ class RedisConsumeQueue:
     def __run_failed_queue(self):
         while True:
             time.sleep(self.__max_retry_interval_sec)
+
+            lock = self.get_redis_client().lock(
+                self.__task_queue_failed_lock_name,
+                timeout=self.__max_retry_interval_sec / 2,
+            )
+            # 防止多个服务同时并发操作，一个周期内只能处理一次
+            # 不需要释放锁，等下一个周期自然会过期，这样可以防止如果任务处理的过快，导致锁释放的过快，导致其他服务器还是能重新竞争到锁
+            if not lock.acquire(blocking=False):
+                continue
             now_timestamp = int(datetime.now().timestamp())
             start = 0
             limit = 1000
@@ -101,21 +112,16 @@ class RedisConsumeQueue:
                     if diff_time < self.__max_retry_interval_sec:
                         continue
                     elif (
-                            self.__max_retry_interval_sec
-                            <= diff_time
-                            < self.__max_abandon_sec
+                        self.__max_retry_interval_sec
+                        <= diff_time
+                        < self.__max_abandon_sec
                     ):
-                        logging.info(
-                            f"start to retry, data:{data}"
-                        )
+                        logging.info(f"start to retry, data:{data}")
                         # TODO 这里需要改良, 优化成一个原子操作
                         self.__rem_from_process_queue_to_task_queue(data)
                     else:
-                        logging.warning(
-                            f"retry end, abandon data, data:{data}"
-                        )
+                        logging.warning(f"retry end, abandon data, data:{data}")
                         self.__rem_from_process_queue(data)
-
 
     def __rem_from_process_queue(self, data: str):
         """
